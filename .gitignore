@@ -1,0 +1,5 @@
+/logs
+/checkpoints
+*/__pycache__
+*.json
+/train_output
