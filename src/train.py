@@ -1,14 +1,14 @@
 import os
 import tensorflow as tf
 from datetime import datetime
-from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
 from tensorflow.keras.models import load_model
+from tensorflow.keras.optimizers import Adam
 from data_loader import DataGenerator, get_annotations, extract_coco
-from metrics import YoloLoss
-from model import build_model
 from utils import ImageGeneratorCallback, get_class_weights
 from constants import available_class, anchors
+from model import build_model
+from metrics import YoloLoss
 
 
 gpus = tf.config.list_physical_devices('GPU')
@@ -24,17 +24,17 @@ split_size = 7          # On every image will be generatet grid {split_size}x{sp
                         # where every cell has his own label.
 batch_size = 16
 epochs = 150
-lr = 2e-4
-threshold = 0.3         # Threshold for generating images to visualize.
- 
-num_batches = 1500      # Beacuse COCO daataset is very huge (around 118k images)
-                        # on every epoch, {num_batches} batches will be randomly selected from all datasets.
-val_batches = 100         
+lr = 1.5e-5
 
-train_base = True       # Unlock ResNet101 for training?
+threshold = 0.3         # Threshold forgenerating images to visualize.
+
+num_batches = 2500      # Beacuse COCO daataset is very huge (around 118k images)
+                        # on every epoch, {num_batches} batches will be randomly selected from all datasets.
+val_batches = 250         
+
+train_base = True       # Unlock base model for training?
 load_checkpoint = True
 checkpoint_name = "checkpoints/last"
-
 annotations_folder = "D:/COCO 2017/annotations/"
 train_dataset = "D:/COCO 2017/train2017/"
 val_dataset = "D:/COCO 2017/val2017/"
@@ -46,6 +46,7 @@ if not os.path.isfile("train_annotations.json"):
 
 if not os.path.isfile("val_annotations.json"):
    extract_coco(f"{annotations_folder}instances_val2017.json", save_filename="val_annotations.json")
+
 
 train_annotations = get_annotations("train_annotations.json")
 val_annotations = get_annotations("val_annotations.json")
@@ -86,9 +87,8 @@ if load_checkpoint:
 else:
    model = build_model((*image_size, 3), split_size, len(anchors), len(classes))
 
-if train_base:
-   base_model = model.get_layer("resnet101")
-   base_model.trainable = True
+
+model.get_layer("resnet101").trainable = train_base
 model.summary()
 
 ### Callbacks ###
@@ -100,10 +100,11 @@ igc = ImageGeneratorCallback(output_dir="train_output",
                              image_size=image_size,
                              classes=classes,
                              anchors=anchors)
-model_checkpoint = ModelCheckpoint(filepath='checkpoints\last.h5', 
-                                   save_best_only=False, 
-                                   save_freq='epoch', 
-                                   verbose=1)
+model_checkpoint = ModelCheckpoint(filepath="checkpoints\last.h5", 
+                                 monitor="val_loss",
+                                 save_best_only=True, 
+                                 save_freq='epoch', 
+                                 verbose=1)
 
 tensorboard_callback = TensorBoard(log_dir=f"./logs/{datetime.now().strftime('%d_%H-%M')}")
 ### Fit the model ###
@@ -118,4 +119,3 @@ model.fit(train_gen,
           epochs=epochs, 
           batch_size=batch_size, 
           callbacks=[igc, model_checkpoint, tensorboard_callback])
-

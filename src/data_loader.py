@@ -1,9 +1,9 @@
-import cv2, json, ijson, itertools
+import cv2, json, ijson
 import numpy as np
 import tensorflow as tf
 import albumentations as A
 from utils import sigmoid
-from constants import available_class, coco_to_ohe_idx
+from constants import coco_to_ohe_idx
 
 
 class DataGenerator(tf.keras.utils.Sequence):
@@ -48,7 +48,6 @@ class DataGenerator(tf.keras.utils.Sequence):
          samples = int(self.batch_size*self.num_batches)
          self.indices = np.random.choice(range(data_size), size=samples, replace=False)
    
-
 
    def __len__(self):
       return self.indices.shape[0] // self.batch_size
