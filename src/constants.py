@@ -40,10 +40,20 @@ for key1, val1 in all_classes.items():
 
 
 #from utils import calculate_anchor_boxes
-#anchors = calculate_anchor_boxes("train_annotations.json", image_size, anchors=6)
-anchors = [[ 10.88, 15.01 ],
-           [192.08, 182.53],
-           [136.31, 78.8  ],
-           [ 47.65, 95.69 ],
-           [ 81.62, 168.64],
-           [ 36.1 , 43.72 ]]
+#anchors = calculate_anchor_boxes("train_annotations.json", (384, 384), anchors=6)
+
+# 384x384
+anchors = [[ 83.6,  166.31],
+         [ 18.95,  26.14],
+         [240.03, 137.86],
+         [329.84, 316.36],
+         [ 63.26,  76.53],
+         [140.86, 290.39]]
+
+# 224x224
+# anchors = [[ 10.88, 15.01 ],
+#            [192.08, 182.53],
+#            [136.31, 78.8  ],
+#            [ 47.65, 95.69 ],
+#            [ 81.62, 168.64],
+#            [ 36.1 , 43.72 ]]

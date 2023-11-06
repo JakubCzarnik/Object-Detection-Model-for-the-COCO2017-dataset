@@ -1,4 +1,4 @@
-import cv2, json, ijson
+import cv2, json, ijson, os
 import numpy as np
 import tensorflow as tf
 import albumentations as A
@@ -8,36 +8,42 @@ from constants import coco_to_ohe_idx
 
 class DataGenerator(tf.keras.utils.Sequence):
    def __init__(self, 
-                annotations:dict,   # annotations
-                image_size:tuple,   # image size: (height, width)
-                split_size:int,     # creates a {split_size}x{split_size} grid where each square has its own label
-                batch_size:int,     # batch size
-                num_batches:int,    # how many batches per epoch from whole dataset?
-                classes:list,       # class names
-                anchors:list,       # anchor boxes
+                filepath:dict,   # annotations
+                config,
+                num_batches,
                 data_folder,        
                 shuffle_keys=True,
                 apply_augmentation=True, # (excluding resize)
                 ): 
-      self.annotations = annotations
-      self.image_size = image_size
-      self.split_size = split_size
-      self.batch_size = batch_size
+      self.annotations = DataGenerator.get_annotations(filepath)
+      self.batch_size = config.batch_size
+      self.split_size = config.split_size
+      self.image_size = config.image_size
+      self.classes = config.classes
+      self.anchors = np.array(config.anchors, np.float32)
+
       self.num_batches = num_batches
-      self.classes = classes
-      self.anchors = np.array(anchors, np.float32)
+      self.data_folder = data_folder
       self.shuffle_keys = shuffle_keys
       self.apply_augmentation = apply_augmentation
-      self.data_folder = data_folder
       # normalize anchors
       self.anchors[..., 0] = self.anchors[..., 0] / self.image_size[1]
       self.anchors[..., 1] = self.anchors[..., 1] / self.image_size[0]
       self.n_anchors = self.anchors.shape[0]
-      self.n_classes = len(classes)
-      self.annotations_keys = np.array(list(annotations.keys()))
-      self.n_annotations = len(annotations)
+      self.n_classes = len(self.classes)
+      self.annotations_keys = np.array(list(self.annotations.keys()))
+      self.n_annotations = len(self.annotations)
       self.transformer = self.get_transformer()
       self.on_epoch_end(create_indices=True)
+
+
+   @staticmethod
+   def get_annotations(annotations_path="annotations.json"):
+      """Returns train/test annotations from annotations file.
+      """
+      with open(annotations_path) as file:
+         annotations = json.load(file)
+      return annotations
 
 
    def on_epoch_end(self, create_indices=False):
@@ -168,7 +174,7 @@ class DataGenerator(tf.keras.utils.Sequence):
             A.HorizontalFlip(p=0.5),
             A.RandomBrightnessContrast(p=1),
             A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.1, rotate_limit=15, p=0.9),
-            A.SmallestMaxSize(max_size=224),
+            A.SmallestMaxSize(max_size=384),
             A.RandomCrop(width=self.image_size[1], height=self.image_size[0], p=0.5),
             A.GaussNoise(p=0.3),
             A.Blur(blur_limit=3, p=0.3),
@@ -185,12 +191,21 @@ class DataGenerator(tf.keras.utils.Sequence):
                                         min_visibility=0.50, min_area=100))
 
 
-def get_annotations(annotations_path="annotations.json"):
-   """Returns train/test annotations from annotations file.
-   """
-   with open(annotations_path) as file:
-      annotations = json.load(file)
-   return annotations
+def get_generators(config):
+   train_gen = DataGenerator(filepath=config.train_extracted_annotations,
+                          config=config, 
+                          num_batches=config.train_batches,
+                          data_folder=config.train_dataset)
+
+
+   val_gen = DataGenerator(filepath=config.val_extracted_annotations,
+                           config=config,
+                           num_batches=config.val_batches,
+                           shuffle_keys=False,
+                           apply_augmentation=False,
+                           data_folder=config.val_dataset)
+   return train_gen, val_gen
+
 
 
 def extract_coco(filename, save_filename):
@@ -230,3 +245,12 @@ def extract_coco(filename, save_filename):
    with open(f"{save_filename}", 'w') as f:
       json.dump(annotations, f)
    return uniq_classes
+
+
+def extract_annotations(config, extract_val=True, extract_train=True):
+   if extract_train:
+      if not os.path.isfile(config.train_extracted_annotations):
+         extract_coco(f"{config.train_annotations}", save_filename=config.train_extracted_annotations)
+   if extract_val:
+      if not os.path.isfile(config.val_extracted_annotations):
+         extract_coco(f"{config.val_annotations}", save_filename=config.val_extracted_annotations)

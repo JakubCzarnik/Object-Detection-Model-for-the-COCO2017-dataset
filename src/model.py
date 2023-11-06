@@ -1,17 +1,29 @@
-from tensorflow.keras.applications.resnet import ResNet101
 from tensorflow.keras.layers import Conv2D, Input, Reshape
 from tensorflow.keras.models import Model
+from keras_efficientnet_v2 import EfficientNetV2B0
+
+def get_base_model(input_shape):
+   base_model = EfficientNetV2B0(input_shape=input_shape)
+   
+   features = base_model.get_layer("post_swish").output
+   base_model.trainable = False
+
+   model = Model(inputs=base_model.input, outputs=features, name="EfficientNetV2B0")
+   return model
 
 
-def build_model(input_shape, split_size, num_anchors, num_classes):
-   base = ResNet101(weights="imagenet", input_shape=input_shape, include_top=False)
-   base.trainable = False
+def build_model(config):
+   i = Input((*config.image_size, 3))
+   
+   base_model = get_base_model(input_shape=(*config.image_size, 3))
+   x = base_model(i)
 
-   i = Input(input_shape)
-   x = base(i)
-   x = Conv2D(num_anchors * (5+num_classes), (1, 1), activation='sigmoid')(x)
-
-   x = Reshape((split_size, split_size, num_anchors, 5+num_classes))(x)
+   x = Conv2D(len(config.anchors) * (5+len(config.classes)), (1, 1), activation='sigmoid', kernel_initializer="he_normal", padding="same")(x)
+   x = Reshape((config.split_size, config.split_size, len(config.anchors), 5+len(config.classes)))(x)
 
    model = Model(i, x)
    return model
+
+if __name__ == "__main__":
+   model = build_model((384, 384, 3), 12, 6, 80)   
+   model.summary()

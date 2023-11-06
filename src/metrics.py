@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.metrics import Metric
-from utils import extract_anchors
+from utils import BBoxParser
 
 
 def dif(value1, value2):
@@ -27,8 +27,8 @@ class YoloLoss:
          class loss, and box loss. 
       """
       ### weights ###
-      w1 = 4/5  # No-object confidence loss
-      w2 = 6/5  # Object confident loss
+      w1 = 2/5  # No-object confidence loss
+      w2 = 8/5  # Object confident loss
       w3 = 4/5  # Class loss
       w4 = 6/5  # Box loss (x, y, w, h)
 
@@ -98,11 +98,11 @@ class GlobalIou(Metric):
 
 
    def update_state(self, y_true, y_pred, sample_weight=None):
-      target_size = 224 # size doesn't matter 
+      target_size = 224 # size doesn't matter - easier to detecting errors
       anchors = tf.convert_to_tensor(self.anchors, tf.float32)
       # extract anchors -> (confidence, xcenter, ycenter, width_ratio, height_ratio, class_idx, anchor_idx)
-      bboxes_true = extract_anchors(y_true)
-      bboxes_pred = extract_anchors(y_pred)
+      bboxes_true = BBoxParser.extract_anchors(y_true)
+      bboxes_pred = BBoxParser.extract_anchors(y_pred)
       ### Find TP/FP/FN indices ###
       # get confident score
       lambda_1 = bboxes_true[..., 0]
@@ -216,8 +216,8 @@ class MeanIou(Metric):
       target_size = 224 # size doesnt matter, 
       anchors = tf.convert_to_tensor(self.anchors, tf.float32)
       # extract anchors -> (confidence, xcenter, ycenter, width_ratio, height_ratio, class_idx, anchor_idx)
-      bboxes_true = extract_anchors(y_true)
-      bboxes_pred = extract_anchors(y_pred)
+      bboxes_true = BBoxParser.extract_anchors(y_true)
+      bboxes_pred = BBoxParser.extract_anchors(y_pred)
       ### Find TP/FP/FN indices ###
       # get confident score
       lambda_1 = bboxes_true[..., 0]
@@ -316,8 +316,8 @@ class ClassRecoil(Metric):
 
 
    def update_state(self, y_true, y_pred, sample_weight=None):
-      bboxes_true = extract_anchors(y_true)
-      bboxes_pred = extract_anchors(y_pred)
+      bboxes_true = BBoxParser.extract_anchors(y_true)
+      bboxes_pred = BBoxParser.extract_anchors(y_pred)
 
       target = bboxes_true[..., 0] 
       # take obj cells
@@ -354,8 +354,8 @@ class AnchorRecoil(Metric):
 
 
    def update_state(self, y_true, y_pred, sample_weight=None):
-      bboxes_true = extract_anchors(y_true)
-      bboxes_pred = extract_anchors(y_pred)
+      bboxes_true = BBoxParser.extract_anchors(y_true)
+      bboxes_pred = BBoxParser.extract_anchors(y_pred)
 
       target = bboxes_true[..., 0] 
       # take obj cells
@@ -392,8 +392,8 @@ class ConfidenceAccuracy(Metric):
       self.total_predictions = self.add_weight(name='tp', initializer='zeros')
 
    def update_state(self, y_true, y_pred, sample_weight=None):
-      bboxes_true = extract_anchors(y_true)
-      bboxes_pred = extract_anchors(y_pred)
+      bboxes_true = BBoxParser.extract_anchors(y_true)
+      bboxes_pred = BBoxParser.extract_anchors(y_pred)
 
       lambda_1 = bboxes_true[..., 0]
       lambda_2 = bboxes_pred[..., 0]
