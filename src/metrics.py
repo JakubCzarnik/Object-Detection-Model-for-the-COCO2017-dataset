@@ -1,4 +1,6 @@
 import tensorflow as tf
+import numpy as np
+from scipy.optimize import linear_sum_assignment
 from tensorflow.keras.metrics import Metric
 from utils import BBoxParser
 
@@ -75,242 +77,21 @@ class YoloLoss:
 
 
 
-class GlobalIou(Metric):
-   """Calculates the Intersection over Union (IoU) for predicted and true bounding boxes.
-
-      IoU is calculated as the sum of intersections divided by the sum of unions for all cells.
-      If there are no bounding boxes to compare (i.e., union is 0), IoU is set to 1.
-      >>> IOU = (sum of intersections) / (sum of unions)
-      
-
-      Note: This function calculates intersection and union for each cell independently, 
-         which might not be the most accurate metric. An ideal metric would use the Hungarian 
-         algorithm to optimally match True and Pred bounding boxes across the entire image.
-   """
-   def __init__(self, anchors, split_size, threshold, name='global_iou', **kwargs):
-      super().__init__(name=name, **kwargs)
-      self.anchors = anchors
-      self.split_size = split_size 
-      self.threshold = threshold
-
-      self.interscetions = self.add_weight(name='is', initializer='zeros')
-      self.unions = self.add_weight(name='un', initializer='zeros')
-
-
-   def update_state(self, y_true, y_pred, sample_weight=None):
-      target_size = 224 # size doesn't matter - easier to detecting errors
-      anchors = tf.convert_to_tensor(self.anchors, tf.float32)
-      # extract anchors -> (confidence, xcenter, ycenter, width_ratio, height_ratio, class_idx, anchor_idx)
-      bboxes_true = BBoxParser.extract_anchors(y_true)
-      bboxes_pred = BBoxParser.extract_anchors(y_pred)
-      ### Find TP/FP/FN indices ###
-      # get confident score
-      lambda_1 = bboxes_true[..., 0]
-      lambda_2 = bboxes_pred[..., 0]
-      # extract true and false boxes (notice: TN doesn't change anything in the calculations)
-      true_positive = tf.where((tf.cast((lambda_1 >= 0.5), tf.int32) + 
-                                tf.cast((lambda_2 >= self.threshold), tf.int32)) == 2)
-      
-      false_positive = tf.where((tf.cast((lambda_1 < 0.5), tf.int32) + 
-                                 tf.cast((lambda_2 >= self.threshold), tf.int32)) == 2)
-      
-      false_negative = tf.where((tf.cast((lambda_1 >= 0.5), tf.int32) + 
-                                 tf.cast((lambda_2 < self.threshold), tf.int32)) == 2)
-
-      ### Denormalize x,y,w,h ###
-      # gather anchors with highest confidence
-      anchor_indices = tf.cast(bboxes_true[..., -1], tf.int32)
-      anchors = tf.gather(anchors, anchor_indices)
-      # denormalize width, height
-      bboxes1_wh = anchors * bboxes_true[..., 2:4]
-      bboxes2_wh = anchors * bboxes_pred[..., 2:4]
-      # calculate grid scalers
-      scaler_y = tf.reshape(tf.repeat(tf.range(self.split_size), self.split_size), (self.split_size, self.split_size))
-      scaler_y = tf.cast(scaler_y, tf.float32)
-      scaler_x = tf.transpose(scaler_y)
-      
-      scaler_x = tf.expand_dims(scaler_x, axis=-1)
-      scaler_y = tf.expand_dims(scaler_y, axis=-1)
-      grid = tf.concat([scaler_x, scaler_y], axis=-1)
-      # denormalize x_center, y_center
-      bboxes1_xy = (grid + bboxes_true[..., 1:3]) * (target_size/self.split_size)
-      bboxes2_xy = (grid + bboxes_pred[..., 1:3]) * (target_size/self.split_size)
-      ### Convert format and gather ###
-      # (xcenter, ycenter, width, height) -> (xmin, ymin, xmax, ymax)
-      bboxes1_min_xy = bboxes1_xy - bboxes1_wh/2
-      bboxes1_max_xy = bboxes1_xy + bboxes1_wh/2
-      
-      bboxes2_min_xy = bboxes2_xy - bboxes2_wh/2
-      bboxes2_max_xy = bboxes2_xy + bboxes2_wh/2
+class ClassMatchMetric(Metric):
+   """This class calculates the classification accuracy for bounding boxes (bboxes) 
+      that pass a certain threshold. 
    
-      bboxes_true = tf.concat([bboxes1_min_xy, bboxes1_max_xy], axis=-1)
-      bboxes_pred = tf.concat([bboxes2_min_xy, bboxes2_max_xy], axis=-1)
-      # gather TP/FP/FN bbox values  
-      bboxes1_tp = tf.gather_nd(bboxes_true, true_positive)
-      bboxes2_tp = tf.gather_nd(bboxes_pred, true_positive)
+      Specifically, it compares the predicted and true labels for bboxes where the 
+      predicted value exceeds the threshold (i.e., the bboxes that will be visualized). 
+      The accuracy is then calculated as the ratio of correctly classified bboxes 
+      to all bboxes that passed the threshold.
       
-      bboxes2_fp = tf.gather_nd(bboxes_pred, false_positive)
-
-      bboxes1_fn = tf.gather_nd(bboxes_true, false_negative)
-      ### Calculate IOU ###
-      # False positive (intersection = 0)
-      areas =  (bboxes2_fp[..., 2] - bboxes2_fp[..., 0]) * (bboxes2_fp[..., 3] - bboxes2_fp[..., 1]) 
-      union_fp = tf.reduce_sum(areas)
-      # False negative (intersection = 0)
-      areas =  (bboxes1_fn[..., 2] - bboxes1_fn[..., 0]) * (bboxes1_fn[..., 3] - bboxes1_fn[..., 1]) 
-      union_fn = tf.reduce_sum(areas)
-      # True positive
-      x1 = tf.maximum(bboxes1_tp[..., 0], bboxes2_tp[..., 0])
-      y1 = tf.maximum(bboxes1_tp[..., 1], bboxes2_tp[..., 1])
-      x2 = tf.minimum(bboxes1_tp[..., 2], bboxes2_tp[..., 2])
-      y2 = tf.minimum(bboxes1_tp[..., 3], bboxes2_tp[..., 3])
-      
-      intersection = tf.maximum(x2 - x1, 0) * tf.maximum(y2 - y1, 0)
-      intersection_tp = tf.reduce_sum(intersection)
-
-      bboxes1_area = (bboxes1_tp[..., 2] - bboxes1_tp[..., 0]) * (bboxes1_tp[..., 3] - bboxes1_tp[..., 1])
-      bboxes2_area = (bboxes2_tp[..., 2] - bboxes2_tp[..., 0]) * (bboxes2_tp[..., 3] - bboxes2_tp[..., 1])
-      union_tp = tf.reduce_sum(bboxes1_area + bboxes2_area - intersection)
-      union = union_tp + union_fn + union_fp
-
-      self.interscetions.assign_add(tf.cast(intersection_tp, tf.float32))
-      self.unions.assign_add(tf.cast(union, tf.float32))
-
-
-   def result(self):
-      if tf.equal(self.unions, 0):
-         return tf.constant(1, dtype=tf.float32)  
-
-      iou = (self.interscetions) / (self.unions + 1e-4)
-      return tf.clip_by_value(iou, 0, 1)
-
-
-   def reset_state(self):
-      self.interscetions.assign(0.)
-      self.unions.assign(0.)
-
-
-
-class MeanIou(Metric):
-   """Calculates the Intersection over Union (IoU) for predicted and true bounding boxes.
-
-      IoU is calculated as the mean of IOU for all cells.
-      If there are no bounding boxes to compare (i.e., union is 0), IoU is set to 1.
-      >>> IOU = mean(IOUS)
-
-      Note: This function calculates intersection and union for each cell independently, 
-         which might not be the most accurate metric. An ideal metric would use the Hungarian 
-         algorithm to optimally match True and Pred bounding boxes across the entire image.
+      The formula used is:
+      >>> correctly classified bboxes / all passed bboxes
    """
-   def __init__(self, anchors, split_size, threshold, name='mean_iou', **kwargs):
+   def __init__(self, threshold, name='class_acc', **kwargs):
       super().__init__(name=name, **kwargs)
-      self.anchors = anchors
-      self.split_size = split_size 
       self.threshold = threshold
-
-      self.sum_ious = self.add_weight(name='ious', initializer='zeros')
-      self.denominator = self.add_weight(name='dm', initializer='zeros')
-
-
-   def update_state(self, y_true, y_pred, sample_weight=None):
-      target_size = 224 # size doesnt matter, 
-      anchors = tf.convert_to_tensor(self.anchors, tf.float32)
-      # extract anchors -> (confidence, xcenter, ycenter, width_ratio, height_ratio, class_idx, anchor_idx)
-      bboxes_true = BBoxParser.extract_anchors(y_true)
-      bboxes_pred = BBoxParser.extract_anchors(y_pred)
-      ### Find TP/FP/FN indices ###
-      # get confident score
-      lambda_1 = bboxes_true[..., 0]
-      lambda_2 = bboxes_pred[..., 0]
-      # extract true and false boxes (notice: TN doesn't change anything in the calculations)
-      true_positive = tf.where((tf.cast((lambda_1 >= 0.5), tf.int32) + 
-                                tf.cast((lambda_2 >= self.threshold), tf.int32)) == 2)
-      
-      false_positive = tf.where((tf.cast((lambda_1 < 0.5), tf.int32) + 
-                                 tf.cast((lambda_2 >= self.threshold), tf.int32)) == 2)
-      
-      false_negative = tf.where((tf.cast((lambda_1 >= 0.5), tf.int32) + 
-                                 tf.cast((lambda_2 < self.threshold), tf.int32)) == 2)
-      ### Denormalize x,y,w,h ###
-      # gather anchors with highest confidence
-      anchor_indices = tf.cast(bboxes_true[..., -1], tf.int32)
-      anchors = tf.gather(anchors, anchor_indices)
-      # denormalize width, height
-      bboxes1_wh = anchors * bboxes_true[..., 2:4]
-      bboxes2_wh = anchors * bboxes_pred[..., 2:4]
-      # calculate grid scalers
-      scaler_y = tf.reshape(tf.repeat(tf.range(self.split_size), self.split_size), (self.split_size, self.split_size))
-      scaler_y = tf.cast(scaler_y, tf.float32)
-      scaler_x = tf.transpose(scaler_y)
-      
-      scaler_x = tf.expand_dims(scaler_x, axis=-1)
-      scaler_y = tf.expand_dims(scaler_y, axis=-1)
-      grid = tf.concat([scaler_x, scaler_y], axis=-1)
-      # denormalize x_center, y_center
-      bboxes1_xy = (grid + bboxes_true[..., 1:3]) * (target_size/self.split_size)
-      bboxes2_xy = (grid + bboxes_pred[..., 1:3]) * (target_size/self.split_size)
-      ### Convert format and gather ###
-      # (xcenter, ycenter, width, height) -> (xmin, ymin, xmax, ymax)
-      bboxes1_min_xy = bboxes1_xy - bboxes1_wh/2
-      bboxes1_max_xy = bboxes1_xy + bboxes1_wh/2
-      
-      bboxes2_min_xy = bboxes2_xy - bboxes2_wh/2
-      bboxes2_max_xy = bboxes2_xy + bboxes2_wh/2
-   
-      bboxes_true = tf.concat([bboxes1_min_xy, bboxes1_max_xy], axis=-1)
-      bboxes_pred = tf.concat([bboxes2_min_xy, bboxes2_max_xy], axis=-1)
-      # gather TP/FP/FN bbox values  
-      bboxes1_tp = tf.gather_nd(bboxes_true, true_positive)
-      bboxes2_tp = tf.gather_nd(bboxes_pred, true_positive)
-      
-      bboxes2_fp = tf.gather_nd(bboxes_pred, false_positive)
-
-      bboxes1_fn = tf.gather_nd(bboxes_true, false_negative)
-      ### Calculate IOU ###
-      # False positive (intersection = 0)
-      areas_fp =  (bboxes2_fp[..., 2] - bboxes2_fp[..., 0]) * (bboxes2_fp[..., 3] - bboxes2_fp[..., 1]) 
-      count_fp = tf.cast(tf.size(areas_fp), tf.float32)
-      # False negative (intersection = 0)
-      areas_fn =  (bboxes1_fn[..., 2] - bboxes1_fn[..., 0]) * (bboxes1_fn[..., 3] - bboxes1_fn[..., 1]) 
-      count_fn = tf.cast(tf.size(areas_fn), tf.float32)
-      # True positive
-      x1 = tf.maximum(bboxes1_tp[..., 0], bboxes2_tp[..., 0])
-      y1 = tf.maximum(bboxes1_tp[..., 1], bboxes2_tp[..., 1])
-      x2 = tf.minimum(bboxes1_tp[..., 2], bboxes2_tp[..., 2])
-      y2 = tf.minimum(bboxes1_tp[..., 3], bboxes2_tp[..., 3])
-      
-      intersection = tf.maximum(x2 - x1, 0) * tf.maximum(y2 - y1, 0)
-
-      bboxes1_area = (bboxes1_tp[..., 2] - bboxes1_tp[..., 0]) * (bboxes1_tp[..., 3] - bboxes1_tp[..., 1])
-      bboxes2_area = (bboxes2_tp[..., 2] - bboxes2_tp[..., 0]) * (bboxes2_tp[..., 3] - bboxes2_tp[..., 1])
-      union_tp = bboxes1_area + bboxes2_area - intersection
-
-      iou_tp = tf.reduce_sum(intersection / (union_tp + 1e-4))
-      count_tp = tf.cast(tf.size(intersection), tf.float32)
-
-      self.sum_ious.assign_add(tf.cast(iou_tp, tf.float32))
-      self.denominator.assign_add(tf.cast(count_tp + count_fn + count_fp, tf.float32))
-
-
-   def result(self):
-      if tf.equal(self.denominator, 0):
-         return tf.constant(1, dtype=tf.float32)
-      mean_iou = self.sum_ious/self.denominator
-      return tf.clip_by_value(mean_iou, 0, 1)
-
-
-   def reset_state(self):
-      self.sum_ious.assign(0.)
-      self.denominator.assign(0.)
-
-
-
-class ClassRecoil(Metric):
-   """Calculates the classification recoil for pred and true bounding boxes.
-      >>> TP / (TP + FN) 
-   """
-   def __init__(self, name='class_rec', **kwargs):
-      super().__init__(name=name, **kwargs)
       self.trues = self.add_weight(name='trues', initializer='zeros')
       self.denominator = self.add_weight(name='dm', initializer='zeros')
 
@@ -319,16 +100,18 @@ class ClassRecoil(Metric):
       bboxes_true = BBoxParser.extract_anchors(y_true)
       bboxes_pred = BBoxParser.extract_anchors(y_pred)
 
-      target = bboxes_true[..., 0] 
-      # take obj cells
-      y_true_class = tf.gather_nd(bboxes_true[..., 5], tf.where(target[:]>0.5))
-      y_pred_class = tf.gather_nd(bboxes_pred[..., 5], tf.where(target[:]>0.5))
+      target = tf.where(bboxes_pred[..., 0][:] > self.threshold)   
+      # take obj cells where y_pred lambda > thrshold
+      y_true_class = tf.gather_nd(bboxes_true[..., 5], target)
+      y_pred_class = tf.gather_nd(bboxes_pred[..., 5], target)
+
       # grab TP bboxes and 
       tp = tf.reduce_sum(tf.where(y_true_class==y_pred_class, 1, 0))
-      tp_fn = tf.reduce_sum(tf.where(target>0.5, 1, 0))
+      
+      bboxes = tf.reduce_sum(tf.where(y_pred_class != -1, 1, 0))
 
       self.trues.assign_add(tf.cast(tp, tf.float32))
-      self.denominator.assign_add(tf.cast(tp_fn, tf.float32))
+      self.denominator.assign_add(tf.cast(bboxes, tf.float32))
 
 
    def result(self):
@@ -343,12 +126,21 @@ class ClassRecoil(Metric):
 
 
 
-class AnchorRecoil(Metric):
-   """Calculates the Anchor recoil for pred and true bounding boxes.
-      >>> TP / (TP + FN) 
+class AnchorMatchMetric(Metric):
+   """This class calculates the anchor accuracy for bounding boxes (bboxes) 
+      that pass a certain threshold. 
+   
+      Specifically, it compares the predicted and true labels for bboxes where the 
+      predicted value exceeds the threshold (i.e., the bboxes that will be visualized). 
+      The accuracy is then calculated as the ratio of correctly choosed anchor 
+      to all bboxes that passed the threshold.
+      
+      The formula used is:
+      >>> correctly choosed anchors / all passed bboxes
    """
-   def __init__(self, name='anchor_rec', **kwargs):
+   def __init__(self, threshold, name='anchor_acc', **kwargs):
       super().__init__(name=name, **kwargs)
+      self.threshold = threshold
       self.trues = self.add_weight(name='trues', initializer='zeros')
       self.denominator = self.add_weight(name='dm', initializer='zeros')
 
@@ -357,16 +149,17 @@ class AnchorRecoil(Metric):
       bboxes_true = BBoxParser.extract_anchors(y_true)
       bboxes_pred = BBoxParser.extract_anchors(y_pred)
 
-      target = bboxes_true[..., 0] 
+      target = tf.where(bboxes_pred[..., 0][:] > self.threshold)   
       # take obj cells
-      y_true_anchor = tf.gather_nd(bboxes_true[..., 6], tf.where(target[:]>0.5))
-      y_pred_anchor = tf.gather_nd(bboxes_pred[..., 6], tf.where(target[:]>0.5))
+      y_true_anchor = tf.gather_nd(bboxes_true[..., 6], target)
+      y_pred_anchor = tf.gather_nd(bboxes_pred[..., 6], target)
       # grab TP bboxes and 
       tp = tf.reduce_sum(tf.where(y_true_anchor==y_pred_anchor, 1, 0))
-      tp_fn = tf.reduce_sum(tf.where(target>0.5, 1, 0))
+
+      bboxes = tf.reduce_sum(tf.where(y_pred_anchor != 1, 1, 0))
 
       self.trues.assign_add(tf.cast(tp, tf.float32))
-      self.denominator.assign_add(tf.cast(tp_fn, tf.float32))
+      self.denominator.assign_add(tf.cast(bboxes, tf.float32))
 
 
    def result(self):
@@ -381,44 +174,86 @@ class AnchorRecoil(Metric):
 
 
 
-class ConfidenceAccuracy(Metric):
-   """Calculates the confident score accuracy for pred and true bounding boxes.
-         >>> (TP + TN) / (TP + TN + FP + FN) 
+class ConfidenceF1Score(Metric):
+   """Calculates the F1 score for pred and true bounding boxes.
+         >>> 2*precision*reccall/(precision+recall) 
    """
-   def __init__(self, threshold, name='lambda_acc', **kwargs):
+   def __init__(self, threshold, name='lambda_f1', **kwargs):
       super().__init__(name=name, **kwargs)
       self.threshold = threshold
-      self.correct_predictions = self.add_weight(name='cp', initializer='zeros')
-      self.total_predictions = self.add_weight(name='tp', initializer='zeros')
+      self.true_positives = self.add_weight(name='tp', initializer='zeros')
+      self.false_positives = self.add_weight(name='fp', initializer='zeros')
+      self.false_negatives = self.add_weight(name='fn', initializer='zeros')
+
+
 
    def update_state(self, y_true, y_pred, sample_weight=None):
       bboxes_true = BBoxParser.extract_anchors(y_true)
       bboxes_pred = BBoxParser.extract_anchors(y_pred)
 
-      lambda_1 = bboxes_true[..., 0]
-      lambda_2 = bboxes_pred[..., 0]
+      lambda_true = bboxes_true[..., 0] # true
+      lambda_pred = bboxes_pred[..., 0] # false
 
-      true_positive = tf.where((tf.cast((lambda_1 >= 0.5), tf.int32) + 
-                                 tf.cast((lambda_2 >= self.threshold), tf.int32)) == 2,
+      true_positive = tf.where((tf.cast((lambda_true >= 0.5), tf.int32) + 
+                                 tf.cast((lambda_pred >= self.threshold), tf.int32)) == 2,
                                  1, 0)
-      true_negative = tf.where((tf.cast((lambda_1 < 0.5), tf.int32) + 
-                                 tf.cast((lambda_2 < self.threshold), tf.int32)) == 2,
+
+      false_positive = tf.where((tf.cast((lambda_true < 0.5), tf.int32) + 
+                                 tf.cast((lambda_pred > self.threshold), tf.int32)) == 2,
+                                 1, 0)
+
+      false_negative = tf.where((tf.cast((lambda_true > 0.5), tf.int32) + 
+                                 tf.cast((lambda_pred < self.threshold), tf.int32)) == 2,
                                  1, 0)
       
       tp_count = tf.reduce_sum(true_positive)
-      tn_count = tf.reduce_sum(true_negative)
-      
-      all_bboxes = tf.where(lambda_1>=-1., 1, 0)
-      all_count = tf.reduce_sum(all_bboxes)
+      fp_count = tf.reduce_sum(false_positive)
+      fn_count = tf.reduce_sum(false_negative)
+      self.true_positives.assign_add(tf.cast(tp_count, tf.float32))
+      self.false_positives.assign_add(tf.cast(fp_count, tf.float32))
+      self.false_negatives.assign_add(tf.cast(fn_count, tf.float32))
 
-      self.correct_predictions.assign_add(tf.cast(tp_count + tn_count, tf.float32))
-      self.total_predictions.assign_add(tf.cast(all_count, tf.float32))
 
 
    def result(self):
-      return self.correct_predictions / self.total_predictions
+      eps = 1e-8
+      precision = self.true_positives/(self.true_positives+self.false_positives+eps)
+      recall = self.true_positives/(self.true_positives+self.false_negatives+eps)
+      f1 = 2*precision*recall/(precision+recall+eps)
+
+      return f1
 
 
    def reset_states(self):
       self.correct_predictions.assign(0.)
       self.total_predictions.assign(0.)
+
+
+class MeanIou:
+   def __init__(self):
+      self.ious = 0
+      self.count = 0
+
+   def update_state(self, y_true, y_pred):
+      """Takes two lists of shapes (B, N, 6) and calculates the IoUs between them.
+         Each bounding box is represented as a 6-tuple (v, x, y, w, h, class_id).
+      """
+      for i in range(len(y_true)):
+         # for every image in batch
+         true = y_true[i]
+         pred = y_pred[i]
+
+         cost_matrix =  np.zeros((len(pred), len(true)))
+         for i, pbox in enumerate(pred):
+            for j, tbox in enumerate(true):
+               # cost = 1 - iou, grab x,y,w,h
+               cost_matrix[i, j] = 1 - BBoxParser.calculate_iou(pbox[1:5], tbox[1:5])
+
+         row_ind, col_ind = linear_sum_assignment(cost_matrix)
+         for i, j in zip(row_ind, col_ind):
+            self.ious += BBoxParser.calculate_iou(pred[i][1:5], true[j][1:5])
+         
+         self.count += max(len(pred), len(true))
+
+   def get_state(self):
+      return self.ious/self.count 

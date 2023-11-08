@@ -2,6 +2,7 @@ from tensorflow.keras.layers import Conv2D, Input, Reshape
 from tensorflow.keras.models import Model
 from keras_efficientnet_v2 import EfficientNetV2B0
 
+
 def get_base_model(input_shape):
    base_model = EfficientNetV2B0(input_shape=input_shape)
    
@@ -25,5 +26,7 @@ def build_model(config):
    return model
 
 if __name__ == "__main__":
-   model = build_model((384, 384, 3), 12, 6, 80)   
+   from config import Config
+   cfg = Config()
+   model = build_model(cfg)   
    model.summary()

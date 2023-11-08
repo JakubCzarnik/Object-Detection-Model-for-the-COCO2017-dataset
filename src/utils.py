@@ -28,6 +28,7 @@ class BBoxParser:
 
    @staticmethod
    def calculate_iou(box1, box2):
+      """Bbox must be in format (x, y, w, h)"""
       box1 = [box1[0], box1[1], box1[0] + box1[2], box1[1] + box1[3]]
       box2 = [box2[0], box2[1], box2[0] + box2[2], box2[1] + box2[3]]
 
@@ -132,10 +133,10 @@ class BBoxParser:
          object, this method will filter those bboxes.
       """
       def preprocess_sample(sample):
-         removed_bboxes = set()
+         bboxes_to_drop = set()
          for i, bbox1 in enumerate(sample):
             for j, bbox2 in enumerate(sample):
-               if i in removed_bboxes or j in removed_bboxes:
+               if i in bboxes_to_drop or j in bboxes_to_drop:
                   continue
                if i == j:
                   continue
@@ -146,17 +147,15 @@ class BBoxParser:
 
                iou = BBoxParser.calculate_iou(bbox1[1:5], bbox2[1:5])
                if iou > self.threshold_duplicates:
-                  # pick the one with higher area
-                  area1 = bbox1[2]*bbox1[3]
-                  area2 = bbox2[2]*bbox2[3]
-                  if area1 > area2:
-                     removed_bboxes.add(j)
+                  # drop the one with smaller confident
+                  if bbox1[0] > bbox2[0]:
+                     bboxes_to_drop.add(j)
                   else:
-                     removed_bboxes.add(i)
+                     bboxes_to_drop.add(i)
          
          filtered_samples = []
          for i, bbox in enumerate(sample):
-            if i in removed_bboxes:
+            if i in bboxes_to_drop:
                continue
             filtered_samples.append(bbox)
          return filtered_samples
@@ -188,6 +187,8 @@ class ImageGeneratorCallback(tf.keras.callbacks.Callback):
       """This function is called at the end of each epoch during training. 
          It visualizes the results of the model on a batch of images.
       """
+      if "val_loss" in logs:
+         epoch = f"{epoch}_loss_{logs['val_loss']:.2f}"
       rows, cols = self.plot_size
 
       bboxes, labels, original_images = [], [], []
@@ -250,7 +251,7 @@ class ImageGeneratorCallback(tf.keras.callbacks.Callback):
                rect = Rectangle((xmin, ymin), w, h, linewidth=2, edgecolor=(0, 1, 0), facecolor='none')
                axs[i, j].add_patch(rect)
                text = f"{confidence:.2f}  {obj_name}"
-               axs[i, j].text
+               axs[i, j].text(xmin, ymin - 5, text, color=(0 ,1, 0), fontsize=6, backgroundcolor='none')
 
       plt.savefig(f'{self.output_dir}/{epoch}.png')
       plt.close()
