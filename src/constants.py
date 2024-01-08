@@ -17,9 +17,6 @@ all_classes = {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplan
                81: 'refrigerator', 82: 'blender', 83: 'book', 84: 'clock', 85: 'vase', 
                86: 'scissors', 87: 'teddy bear', 88: 'hair drier', 89: 'toothbrush', 90: 'hair brush'}
 
-#from data_loader import extract_coco
-#annotations_folder = "D:/COCO 2017/annotations/"
-#class_indices_2017 = extract_coco(f"{annotations_folder}instances_train2017.json", save_filename="train_annotations.json")
 class_indices_2017 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                      21, 22, 23, 24, 26, 27, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
                      41, 42, 43, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58,
@@ -27,33 +24,18 @@ class_indices_2017 = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 
                      80, 81, 83, 84, 85, 86, 87, 88, 89}
 
 # clean classes
-available_class = {key:value for key, value in all_classes.items() 
-                   if key in class_indices_2017}
-available_class = {i: value for i, value in enumerate(available_class.values())}
+coco2017id_to_name = {key:value for key, value in all_classes.items() 
+                                 if key in class_indices_2017}
+coco2017id_to_name = {i: value for i, value in enumerate(coco2017id_to_name.values())}
 
 # map original indices to new
-coco_to_ohe_idx = {}
+cocoid_to_coco2017id = {}
 for key1, val1 in all_classes.items():
-   for key2, val2 in available_class.items():
+   for key2, val2 in coco2017id_to_name.items():
       if val1==val2:
-         coco_to_ohe_idx[key1] = key2
+         cocoid_to_coco2017id[key1] = key2
 
 
-#from utils import calculate_anchor_boxes
-#anchors = calculate_anchor_boxes("train_annotations.json", (384, 384), anchors=6)
 
-# 384x384
-anchors = [[ 83.6,  166.31],
-         [ 18.95,  26.14],
-         [240.03, 137.86],
-         [329.84, 316.36],
-         [ 63.26,  76.53],
-         [140.86, 290.39]]
 
-# 224x224
-# anchors = [[ 10.88, 15.01 ],
-#            [192.08, 182.53],
-#            [136.31, 78.8  ],
-#            [ 47.65, 95.69 ],
-#            [ 81.62, 168.64],
-#            [ 36.1 , 43.72 ]]
+

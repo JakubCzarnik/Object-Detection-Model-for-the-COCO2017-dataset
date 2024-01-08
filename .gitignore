@@ -1,6 +1,8 @@
 /logs
 /checkpoints
-*/__pycache__
+/training_output
+/_checks
+**/__pycache__
 *.json
-/train_output
 src/scratchpad.py
+src/scratchpad2.py

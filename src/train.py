@@ -1,59 +1,61 @@
 from datetime import datetime 
 import tensorflow as tf
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
-from tensorflow.keras.models import load_model
-from data_loader import get_generators, extract_annotations
-from utils import ImageGeneratorCallback, get_class_weights, set_memory_growth
-from model import build_model
-from metrics import YoloLoss
+from callbacks import MapsCompareCallback, SaveCallback
+from utils import set_memory_growth, get_generators, extract_annotations
+from models.model import DetectionModel
+from metrics import DetectionLoss, IouMetric, F1Score
 from config import Config
 
 
 cfg = Config()
-
 set_memory_growth()
 
 ### Preprocess annotations ###
 extract_annotations(cfg)
-class_weights = get_class_weights(cfg.train_extracted_annotations)
-
 
 ### Create generators ###
 train_gen, val_gen = get_generators(cfg)
 
+### build and compile the model ###
+detector = DetectionModel(cfg)
 
-### Load/build model ###
-if cfg.load_checkpoint:
-   model = load_model(f'{cfg.checkpoint_name}.h5', custom_objects={'YoloLoss': YoloLoss})
-else:
-   model = build_model(cfg)
+optimizer=tf.keras.optimizers.Adam(cfg.learning_rate)
+detector.compile(optimizer=optimizer,
+                  loss=DetectionLoss(cfg),
+                  metrics=[IouMetric(),
+                           F1Score(threshold=0.6)])
 
+### Create callbacks ###
+callbacks = []
+checkpoint = tf.train.Checkpoint(optimizer=optimizer, 
+                                 model=detector.base_model)
 
-model.get_layer("EfficientNetV2B0").trainable = cfg.train_base
-model.summary()
+manager = tf.train.CheckpointManager(checkpoint, 
+                                     cfg.checkpoint_save_path, 
+                                     max_to_keep=cfg.checkpoints_to_keep
+                                     )
+saver = SaveCallback(checkpoint, manager)
+callbacks.append(saver)
+mpc = MapsCompareCallback(val_gen, cfg)
+callbacks.append(mpc)
 
-### Callbacks ###
-igc = ImageGeneratorCallback(output_dir="train_output", 
-                             model=model, 
-                             datagen=val_gen, 
-                             config=cfg)
+if cfg.run_tensorboard:
+   import datetime
+   folder_name = datetime.datetime.now().strftime("%d_%H-%M")
+   tb = tf.keras.callbacks.TensorBoard(log_dir=f"logs/{folder_name}")
+   callbacks.append(tb)
 
-model_checkpoint = ModelCheckpoint(filepath="checkpoints\last.h5", 
-                                 monitor="val_loss",
-                                 save_best_only=True, 
-                                 save_freq='epoch', 
-                                 verbose=1)
+### load checkpoint ###
+if cfg.load_last_checkpoint:
+   print("Loading checkpoint...")
+   checkpoint.restore(manager.latest_checkpoint) 
+elif cfg.load_checkpoint:
+   print("Loading checkpoint...")
+   checkpoint.restore(cfg.checkpoint_load_path)
 
-tensorboard_callback = TensorBoard(log_dir=f"./logs/{datetime.now().strftime('%d_%H-%M')}")
-### Fit the model ###
-model.compile(optimizer=tf.keras.optimizers.Adam(cfg.lr),
-              loss=YoloLoss(image_size=cfg.image_size, 
-                            split_size=cfg.split_size,
-                            class_weights=class_weights))
-
-
-model.fit(train_gen, 
-          validation_data=val_gen,
-          epochs=cfg.epochs, 
-          batch_size=cfg.batch_size, 
-          callbacks=[model_checkpoint, igc, tensorboard_callback])
+### train the model ###
+detector.base_model.summary()
+detector.fit(train_gen, 
+            validation_data=val_gen,
+            epochs=cfg.epochs, 
+            callbacks=callbacks)

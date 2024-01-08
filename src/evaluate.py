@@ -1,56 +1,54 @@
-from metrics import YoloLoss, ClassMatchMetric, AnchorMatchMetric, ConfidenceF1Score, MeanIou
-from tensorflow.keras.models import load_model
-from data_loader import DataGenerator, extract_annotations
-from utils import set_memory_growth, BBoxParser
+import tensorflow as tf
+from utils import set_memory_growth, get_generators, extract_annotations
+from models.model import DetectionModel
+from metrics import DetectionLoss, IouMetric, F1Score
 from config import Config
-import numpy as np
+
 
 cfg = Config()
+cfg.val_batches_per_epoch = 4800//cfg.batch_size
 
 set_memory_growth()
 
 ### Preprocess annotations ###
-extract_annotations(cfg, extract_train=False)
+extract_annotations(cfg)
 
 
-## Create generator ###
-val_gen = DataGenerator(filepath="val_annotations.json",
-                        config=cfg,
-                        num_batches=cfg.val_batches,
-                        shuffle_keys=False,
-                        apply_augmentation=False,
-                        data_folder=cfg.val_dataset)
+### Create generators ###
+train_gen, val_gen = get_generators(cfg)
+
+
+### build model ###
+detector = DetectionModel(cfg)
+
+optimizer=tf.keras.optimizers.Adam(learning_rate=0)
+
+detector.compile(optimizer=optimizer,
+              loss=DetectionLoss(cfg),
+              metrics=[IouMetric(),
+                       F1Score(threshold=0.6)]
+                       )
+
+### Callbacks ###
+checkpoint = tf.train.Checkpoint(optimizer=optimizer, 
+                                 model=detector.base_model)
+manager = tf.train.CheckpointManager(checkpoint, 
+                                     cfg.checkpoint_save_path, 
+                                     max_to_keep=cfg.checkpoints_to_keep)
 
 
 
-### Load model ### 
-model = load_model(f'{cfg.checkpoint_name}.h5', custom_objects={'YoloLoss': YoloLoss})
-model.summary()
+# load checkpoint
+detector.base_model.summary()
+if cfg.load_last_checkpoint:
+   print("Loading checkpoint...")
+   checkpoint.restore(manager.latest_checkpoint) 
+elif cfg.load_checkpoint:
+   print("Loading checkpoint...")
+   checkpoint.restore(cfg.checkpoint_load_path)
 
-model.compile(optimizer="adam",
-              loss=YoloLoss(image_size=cfg.image_size,
-                            split_size=cfg.split_size,
-                            class_weights=[1]*len(cfg.classes)),
-              metrics=[ConfidenceF1Score(cfg.threshold),
-                       ClassMatchMetric(cfg.threshold),
-                       AnchorMatchMetric(cfg.threshold)])
+### train the model ###
+detector.train_step = detector.test_step
 
-model.evaluate(val_gen)
-
-# evaluate mean iou
-metric = MeanIou()
-parser = BBoxParser(cfg)
-
-indices = np.arange(len(val_gen))
-for idx in indices:
-   images, y_true = val_gen[idx]
-
-   y_pred = model.predict(images, verbose=0)
-
-   y_true = parser.parse_batch(y_true)
-   y_pred = parser.parse_batch(y_pred)
-
-   metric.update_state(y_true, y_pred)
-   iou = metric.get_state()
-   print("Iou: ", round(iou*100, 2), "%", end="\r")
-# lambda_f1: 0.5565 - class_acc: 0.5858 - anchor_acc: 0.9240 IOU 32.03%
+detector.fit(val_gen,
+            epochs=1)
