@@ -89,7 +89,7 @@ def non_max_suppression(batch, max_output_size=200, iou_threshold=0.4):
 
 
 
-class Assignor:
+class DynamicBBoxMatcher:
    def __init__(self, alpha=4, beta=1):
       self.alpha = alpha
       self.beta = beta

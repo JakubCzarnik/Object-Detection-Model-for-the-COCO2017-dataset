@@ -1,9 +1,8 @@
 from utils import BBoxParser
-import tensorflow as tf
-import numpy as np
-import matplotlib.pyplot as plt
-import cv2
 from assignor import non_max_suppression
+import tensorflow as tf, numpy as np, matplotlib.pyplot as plt
+import cv2
+
 
 class MapsCompareCallback(tf.keras.callbacks.Callback):
    def __init__(self, generator, config):
@@ -41,8 +40,9 @@ class MapsCompareCallback(tf.keras.callbacks.Callback):
       # denomralize
       images = ((np.array(images)*self.std + self.mean)*255).astype(np.int32)
 
-      for (_name, _bboxes) in [["nms", bboxes_nms], ["pred", bboxes_pred], ["true", bboxes_true]]:
-         fig, axs = plt.subplots(*self.plot_size)
+      _plots = [["nms", bboxes_nms], ["pred", bboxes_pred], ["true", bboxes_true]]
+      for (_name, _bboxes) in _plots:
+         _, axs = plt.subplots(*self.plot_size)
          id = 0
 
          for i in range(self.plot_size[0]):

@@ -5,21 +5,52 @@ from tensorflow.keras.utils import Sequence
 
 class MetaData: 
    @classmethod      
-   def return_train_data(cls, image, annotation, max_bboxes):
-      image, bboxes = MetaData._preprocess_data(image, annotation)
+   def return_train_data(cls, original_image, annotation, max_bboxes):
+      """
+      Returns the preprocessed image and label for training data.
+      
+      Args:
+         original_image (np.array): The original input image.
+         annotation (dict): The annotation data for the image.
+         max_bboxes (int): The maximum number of bounding boxes.
+
+      Returns:
+         np.array: The preprocessed image.
+         np.array: The label data.
+      """
+      image, bboxes = MetaData._preprocess_data(original_image, annotation)
       label = MetaData.create_label(bboxes, max_bboxes)
       return image, label
    
 
    @classmethod      
    def return_test_data(cls, original_image, annotation, max_bboxes):
-      image, bboxes = MetaData._preprocess_data(image, annotation)
+      """
+      Returns the preprocessed image, label, and original image for test data.
+      
+      Args:
+         original_image (np.array): The original input image.
+         annotation (dict): The annotation data for the image.
+         max_bboxes (int): The maximum number of bounding boxes.
+
+      Returns:
+         np.array: The preprocessed image.
+         np.array: The label data.
+         np.array: The original image.
+      """
+      image, bboxes = MetaData._preprocess_data(original_image, annotation)
       label = MetaData.create_label(bboxes, max_bboxes)
       return image, label, original_image
 
 
    @classmethod
    def update(cls, config):
+      """
+      Updates the class attributes based on the provided configuration.
+      
+      Args:
+         config (Config): The configuration object.
+      """
       cls.target_image_size = config.target_image_size
       cls.n_classes = config.n_classes 
 
@@ -41,7 +72,17 @@ class MetaData:
 
    @classmethod
    def _preprocess_data(cls, image, annotation):
-      """Transforms image with keypoints"""
+      """
+      Preprocesses the image and annotation data.
+      
+      Args:
+         image (np.array): The input image.
+         annotation (dict): The annotation data for the image.
+
+      Returns:
+         np.array: The preprocessed image.
+         np.array: The preprocessed bounding boxes.
+      """
       w, h = annotation["width"], annotation["height"]
       bboxes = np.array(annotation["bboxes"], dtype=np.float32)
       classes = np.array(annotation["classes"], dtype=np.int32)
@@ -64,6 +105,16 @@ class MetaData:
 
    @classmethod
    def create_label(cls, annotations, max_bboxes):
+      """
+      Creates the label data from the annotations.
+      
+      Args:
+         annotations (list): The list of annotations.
+         max_bboxes (int): The maximum number of bounding boxes in batch.
+
+      Returns:
+         np.array: The label data.
+      """
       label = np.zeros((max_bboxes, 5 + cls.n_classes), dtype=np.float32)
 
       for i, bbox in enumerate(annotations):
@@ -74,14 +125,12 @@ class MetaData:
          _w = w*cls.target_image_size[1]
          _h = h*cls.target_image_size[0]
 
-         # assign
          ohe = np.zeros((cls.n_classes), np.float32)
          ohe[int(cls_id)] = 1
 
          label[i] = [1, _xc, _yc, _w, _h, *ohe]
-      
       return label
-      
+
 
 class DataGenerator(Sequence):
    def __init__(self, 
@@ -89,6 +138,15 @@ class DataGenerator(Sequence):
                 data_folder:str, 
                 batches:int, 
                 shuffle:bool=True):
+      """
+      Initializes the DataGenerator.
+      
+      Args:
+         annotations_path (str): The path to the annotations.
+         data_folder (str): The path to the data folder.
+         batches (int): The number of batches.
+         shuffle (bool): If True, shuffles the indices every epoch.
+      """
       self.annotations = DataGenerator.load_annotations(annotations_path)
       self.data_folder = data_folder
       self.batches = batches
@@ -98,11 +156,23 @@ class DataGenerator(Sequence):
 
 
    def __len__(self):
+      """
+      Returns the length of the indices divided by the batch size.
+      
+      Returns:
+         int: The length of the indices divided by the batch size.
+      """
       return len(self.indices) // DataGenerator.batch_size
 
 
    @classmethod
    def update(cls, config):
+      """
+      Updates the class attributes based on the provided configuration.
+      
+      Args:
+         config (Config): The configuration object.
+      """
       cls.n_classes = config.n_classes
       cls.batch_size = config.batch_size
       cls.target_image_size = config.target_image_size
@@ -111,7 +181,14 @@ class DataGenerator(Sequence):
 
    @staticmethod
    def load_annotations(annotations_path="annotations.json"):
-      """Returns train/test annotations from annotations file.
+      """
+      Returns annotations from annotations file.
+      
+      Args:
+         annotations_path (str): The path to the annotations file.
+
+      Returns:
+         dict: The annotations.
       """
       with open(annotations_path) as file:
          annotations = json.load(file)
@@ -120,8 +197,11 @@ class DataGenerator(Sequence):
 
 
    def on_epoch_end(self, create_indices=False):
-      """Choices new indices from annotations.
-         Notice: this method selecting {num_batches} batches randomly from whole dataset.
+      """
+      Chooses new indices from annotations at the end of each epoch.
+      
+      Args:
+         create_indices (bool): If True, creates new indices.
       """
       if self.shuffle or create_indices:
          data_size = len(self.annotations)
@@ -130,6 +210,16 @@ class DataGenerator(Sequence):
 
 
    def __getitem__(self, index):
+      """
+      Returns the batch of features and labels for a given index.
+      
+      Args:
+         index (int): The index of the batch.
+
+      Returns:
+         np.array: The batch of features.
+         np.array: The batch of labels (independent variables).
+      """
       if index > len(self):
          print(f"Index is greater than size of generator: {index} > {len(self)}")
       start_idx = index * DataGenerator.batch_size
@@ -163,6 +253,17 @@ class DataGenerator(Sequence):
 
 
    def get_test_batch(self, index):
+      """
+      Returns the preprocessed image, label, and original image for a given index.
+      
+      Args:
+         index (int): The index.
+
+      Returns:
+         np.array: The preprocessed image.
+         np.array: The label data.
+         np.array: The original image.
+      """
       if index > len(self):
          print(f"Index is greater than size of generator: {index} > {len(self)}")
       start_idx = index * DataGenerator.batch_size
@@ -197,5 +298,3 @@ class DataGenerator(Sequence):
          X[i] = image
 
       return X, y, original_images
-
-

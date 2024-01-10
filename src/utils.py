@@ -1,11 +1,17 @@
-import json, ijson, os
-import tensorflow as tf, numpy as np
 from data_loader import DataGenerator
 from constants import cocoid_to_coco2017id
+import json, ijson, os
+import tensorflow as tf, numpy as np
 
 class BBoxParser:
    @classmethod
    def update(cls, config):
+      """
+      Updates the class attribute based on the provided configuration.
+      
+      Args:
+         config (Config): The configuration object.
+      """
       cls.bbox_threshold = config.bbox_threshold
 
 

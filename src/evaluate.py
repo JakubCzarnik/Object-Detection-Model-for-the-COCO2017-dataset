@@ -1,8 +1,8 @@
-import tensorflow as tf
 from utils import set_memory_growth, get_generators, extract_annotations
 from models.model import DetectionModel
 from metrics import DetectionLoss, IouMetric, F1Score
 from config import Config
+import tensorflow as tf
 
 
 cfg = Config()

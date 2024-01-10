@@ -1,10 +1,10 @@
-from datetime import datetime 
-import tensorflow as tf
-from callbacks import MapsCompareCallback, SaveCallback
+from config import Config
 from utils import set_memory_growth, get_generators, extract_annotations
 from models.model import DetectionModel
 from metrics import DetectionLoss, IouMetric, F1Score
-from config import Config
+from callbacks import MapsCompareCallback, SaveCallback
+from datetime import datetime 
+import tensorflow as tf
 
 
 cfg = Config()

@@ -1,6 +1,6 @@
-import tensorflow as tf
 from tensorflow.keras.losses import binary_crossentropy, categorical_crossentropy
-from assignor import Assignor, non_max_suppression
+from assignor import DynamicBBoxMatcher, non_max_suppression
+import tensorflow as tf
 
 def iou(y_true, y_pred):
    # xc, yc, w, h -> xmin, ymin, xmax, ymax
@@ -67,7 +67,7 @@ class DetectionLoss(tf.keras.losses.Loss):
       self.w4 = tf.cast(config.w4, tf.float32)
 
       self.box_loss = BboxLoss()
-      self.tasker = Assignor()
+      self.tasker = DynamicBBoxMatcher()
 
 
    def __call__(self, y_true, y_pred, sample_weight=None):
@@ -109,7 +109,7 @@ class IouMetric(tf.keras.metrics.Metric):
       self.total_iou = self.add_weight(name='iou', initializer='zeros')
       self.num_boxes = self.add_weight(name='num_boxes', initializer='zeros')
 
-      self.tasker = Assignor()
+      self.tasker = DynamicBBoxMatcher()
 
 
    def update_state(self, y_true, y_pred, sample_weight=None):
@@ -170,7 +170,7 @@ class F1Score(tf.keras.metrics.Metric):
       self.fp = self.add_weight(name='fp', initializer='zeros')  
       self.fn = self.add_weight(name='fn', initializer='zeros')
 
-      self.tasker = Assignor()
+      self.tasker = DynamicBBoxMatcher()
 
 
    def update_state(self, y_true, y_pred, sample_weight=None):
