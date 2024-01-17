@@ -23,26 +23,6 @@ class MetaData:
       return image, label
    
 
-   @classmethod      
-   def return_test_data(cls, original_image, annotation, max_bboxes):
-      """
-      Returns the preprocessed image, label, and original image for test data.
-      
-      Args:
-         original_image (np.array): The original input image.
-         annotation (dict): The annotation data for the image.
-         max_bboxes (int): The maximum number of bounding boxes.
-
-      Returns:
-         np.array: The preprocessed image.
-         np.array: The label data.
-         np.array: The original image.
-      """
-      image, bboxes = MetaData._preprocess_data(original_image, annotation)
-      label = MetaData.create_label(bboxes, max_bboxes)
-      return image, label, original_image
-
-
    @classmethod
    def update(cls, config):
       """
@@ -209,6 +189,29 @@ class DataGenerator(Sequence):
          self.indices = np.random.choice(range(data_size), size=samples, replace=False)
 
 
+   def _pre_load_batch(self, index):
+      if index > len(self):
+         print(f"Index is greater than size of generator: {index} > {len(self)}")
+      start_idx = index * DataGenerator.batch_size
+      end_idx = (index + 1) * DataGenerator.batch_size
+      batch_indices = self.indices[start_idx:end_idx]
+
+      X = np.zeros((DataGenerator.batch_size, *DataGenerator.target_image_size, 3), 
+                    dtype=np.float32)
+
+      _img_ids  = []
+      max_bboxes = 0
+      for idx in batch_indices:
+         image_name = list(self.annotations.keys())[int(idx)]
+         annotation = self.annotations[image_name]
+         
+         _img_ids.append(image_name)
+         max_bboxes = max(max_bboxes, len(annotation["bboxes"]))
+         
+      y = np.zeros((DataGenerator.batch_size, max_bboxes, 5 + DataGenerator.n_classes), dtype=np.float32)
+      return X, y, _img_ids, max_bboxes
+   
+
    def __getitem__(self, index):
       """
       Returns the batch of features and labels for a given index.
@@ -220,29 +223,11 @@ class DataGenerator(Sequence):
          np.array: The batch of features.
          np.array: The batch of labels (independent variables).
       """
-      if index > len(self):
-         print(f"Index is greater than size of generator: {index} > {len(self)}")
-      start_idx = index * DataGenerator.batch_size
-      end_idx = (index + 1) * DataGenerator.batch_size
-      batch_indices = self.indices[start_idx:end_idx]
+      X, y, _img_ids, max_bboxes = self._pre_load_batch(index)
 
-      X = np.zeros((DataGenerator.batch_size, *DataGenerator.target_image_size, 3), 
-                    dtype=np.float32)
-
-      _img_name  = []
-      max_bboxes = 0
-      for i, idx in enumerate(batch_indices):
-         image_name = list(self.annotations.keys())[int(idx)]
-         annotation = self.annotations[image_name]
-         
-         _img_name.append(image_name)
-         max_bboxes = max(max_bboxes, len(annotation["bboxes"]))
-         
-      y = np.zeros((DataGenerator.batch_size, max_bboxes, 5 + DataGenerator.n_classes), dtype=np.float32)
-
-      for i, name_id in enumerate(_img_name):
-         annotation = self.annotations[name_id]
-         image = cv2.imread(f"{self.data_folder}{name_id}")
+      for i, img_id in enumerate(_img_ids):
+         annotation = self.annotations[img_id]
+         image = cv2.imread(f"{self.data_folder}{img_id}")
 
          image, label = MetaData.return_train_data(image, annotation, max_bboxes)
          
@@ -264,28 +249,9 @@ class DataGenerator(Sequence):
          np.array: The label data.
          np.array: The original image.
       """
-      if index > len(self):
-         print(f"Index is greater than size of generator: {index} > {len(self)}")
-      start_idx = index * DataGenerator.batch_size
-      end_idx = (index + 1) * DataGenerator.batch_size
-      batch_indices = self.indices[start_idx:end_idx]
+      X, y, _img_name, max_bboxes = self._pre_load_batch(index)
 
-      X = np.zeros((DataGenerator.batch_size, *DataGenerator.target_image_size, 3), 
-                    dtype=np.float32)
-      
       original_images = []
-
-      _img_name  = []
-      max_bboxes = 0
-      for i, idx in enumerate(batch_indices):
-         image_name = list(self.annotations.keys())[int(idx)]
-         annotation = self.annotations[image_name]
-         
-         _img_name.append(image_name)
-         max_bboxes = max(max_bboxes, len(annotation["bboxes"]))
-         
-      y = np.zeros((DataGenerator.batch_size, max_bboxes, 5 + DataGenerator.n_classes), dtype=np.float32)
-
       for i, name_id in enumerate(_img_name):
          annotation = self.annotations[name_id]
          image = cv2.imread(f"{self.data_folder}{name_id}")

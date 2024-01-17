@@ -26,7 +26,6 @@ class DetectionModel(tf.keras.Model):
 
       with tf.GradientTape() as tape:
          y_pred = self(x, training=True)
-
          loss, info = self.loss(y_true, y_pred)
 
       gradients = tape.gradient(loss, self.base_model.trainable_variables)

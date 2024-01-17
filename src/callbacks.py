@@ -1,5 +1,4 @@
-from utils import BBoxParser
-from assignor import non_max_suppression
+from utils import BBoxParser, non_max_suppression
 import tensorflow as tf, numpy as np, matplotlib.pyplot as plt
 import cv2
 

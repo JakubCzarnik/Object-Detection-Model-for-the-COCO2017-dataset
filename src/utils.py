@@ -31,6 +31,87 @@ class BBoxParser:
       return output
 
 
+def non_max_suppression(batch, max_output_size=200, iou_threshold=0.4):
+   """
+   This function performs non-maximum suppression (NMS) on the bounding boxes of detected objects.
+
+   Args:
+      batch (tensor): A tensor of shape (batch_size, max_boxes, 5+n_classes) representing the bounding boxes for each detected object.
+      max_output_size (int, optional): The maximum number of boxes to keep after NMS.
+      iou_threshold (float, optional): The IOU threshold for determining duplicate boxes.
+
+   Returns:
+      tensor: A tensor of shape (batch_size, max_boxes, 5+n_classes) representing the bounding boxes after NMS.
+   """
+   scores = batch[..., 0] # (batch_size, n)
+   bboxes_xywh = batch[..., 1:5] # (batch_size, n, 4)
+   bboxes = xywh2xyxy(bboxes_xywh)
+
+   def single_image_nms(bboxes_scores):
+      bboxes, scores = bboxes_scores
+      selected_indices = tf.image.non_max_suppression(
+         bboxes, scores, max_output_size, iou_threshold)
+
+      # Create a mask of zeros the same size as scores
+      mask = tf.zeros_like(scores, dtype=tf.bool)
+
+      # Set the indices of the selected boxes to True
+      mask = tf.tensor_scatter_nd_update(mask, tf.expand_dims(selected_indices, axis=-1), tf.ones_like(selected_indices, dtype=tf.bool))
+
+      # Zero out the scores and bboxes that are not selected
+      scores = tf.where(mask, scores, 0)
+      scores = tf.expand_dims(scores, axis=-1)
+      
+      bboxes = tf.where(tf.tile(tf.expand_dims(mask, axis=-1), [1, 4]), bboxes, 0)
+      bboxes = xyxy2xywh(bboxes)
+
+      # Concatenate the scores and bboxes
+      return tf.concat([scores, bboxes], axis=-1)
+
+   selected_boxes_scores = tf.map_fn(single_image_nms, (bboxes, scores), dtype=tf.float32)
+
+   selected_boxes_scores = tf.concat([selected_boxes_scores, batch[..., 5:]], axis=-1)
+   
+   batch = tf.tensor_scatter_nd_update(batch, tf.range(tf.shape(scores)[0])[:, None], selected_boxes_scores)
+   return batch
+
+
+def xywh2xyxy(boxes):
+   """
+   Convert bbox format from (xc, yc, w, h) to (xmin, ymin, xmax, ymax).
+
+   Args:
+      boxes: A tensor of shape (batch_size, n_boxes, 4).
+
+   Returns:
+      A tensor of shape (batch_size, n_boxes, 4) representing the boxes in (xmin, ymin, xmax, ymax) format.
+   """
+   xc, yc, w, h = tf.split(boxes, 4, axis=-1)
+   xmin = xc - w / 2
+   ymin = yc - h / 2
+   xmax = xc + w / 2
+   ymax = yc + h / 2
+   return tf.concat([xmin, ymin, xmax, ymax], axis=-1)
+
+
+def xyxy2xywh(boxes):
+   """
+   Convert bbox format from (xmin, ymin, xmax, ymax) to (xc, yc, w, h).
+
+   Args:
+      boxes: A tensor of shape (batch_size, n_boxes, 4).
+
+   Returns:
+      A tensor of shape (batch_size, n_boxes, 4) representing the boxes in (xc, yc, w, h) format.
+   """
+   xmin, ymin, xmax, ymax = tf.split(boxes, 4, axis=-1)
+   w = xmax - xmin
+   h = ymax - ymin
+   xc = xmin + w / 2
+   yc = ymin + h / 2
+   return tf.concat([xc, yc, w, h], axis=-1)
+
+
 def get_generators(config):
    train_gen = DataGenerator(config.extracted_train_annotations, 
                            config.train_images, 

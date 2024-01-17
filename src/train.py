@@ -23,7 +23,7 @@ optimizer=tf.keras.optimizers.Adam(cfg.learning_rate)
 detector.compile(optimizer=optimizer,
                   loss=DetectionLoss(cfg),
                   metrics=[IouMetric(),
-                           F1Score(threshold=0.6)])
+                           F1Score(iou_threshold=0.6)])
 
 ### Create callbacks ###
 callbacks = []

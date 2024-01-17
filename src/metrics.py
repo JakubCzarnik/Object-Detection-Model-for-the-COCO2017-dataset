@@ -1,5 +1,6 @@
 from tensorflow.keras.losses import binary_crossentropy, categorical_crossentropy
-from assignor import DynamicBBoxMatcher, non_max_suppression
+from assignor import DynamicBBoxMatcher
+from utils import non_max_suppression
 import tensorflow as tf
 
 def iou(y_true, y_pred):
@@ -163,9 +164,9 @@ class F1Score(tf.keras.metrics.Metric):
          >>> cls_t, cls_p - Class of given Bbox
          >>> ||, && - Logical "or" and "and"
    """
-   def __init__(self, threshold=0.6, name='f1_score', **kwargs):
+   def __init__(self, iou_threshold=0.6, name='f1_score', **kwargs):
       super(F1Score, self).__init__(name=name, **kwargs)
-      self.threshold = threshold
+      self.threshold = iou_threshold
       self.tp = self.add_weight(name='tp', initializer='zeros')
       self.fp = self.add_weight(name='fp', initializer='zeros')  
       self.fn = self.add_weight(name='fn', initializer='zeros')
