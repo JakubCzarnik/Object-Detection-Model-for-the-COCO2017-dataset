@@ -20,7 +20,7 @@ class DynamicBBoxMatcher:
       """
       alignment_metrics = self.compute_alignment_metric(y_true, y_pred) # -> (B, n_boxes, 2000)
 
-      assignments = tf.map_fn(lambda x: tf.py_function(func=self.hungarian_method, inp=[x], Tout=tf.float32), alignment_metrics)
+      assignments = tf.vectorized_map(lambda x: tf.py_function(func=self.hungarian_method, inp=[x], Tout=tf.float32), alignment_metrics)
       # asign
       y_true_expanded = tf.zeros_like(y_pred)
 

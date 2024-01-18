@@ -9,6 +9,7 @@ class Config:
       self.train_annotations:str = "D:/COCO 2017/annotations/instances_train2017.json" # Path to the training annotations
       self.val_annotations:str = "D:/COCO 2017/annotations/instances_val2017.json" # Path to the validation annotations
       
+      # These files will be generated form original annotations.
       self.extracted_train_annotations:str = "train_annotations.json" # Path to the extracted training annotations
       self.extracted_val_annotations:str = "val_annotations.json" # Path to the extracted validation annotations
 

@@ -151,11 +151,11 @@ class IouMetric(tf.keras.metrics.Metric):
 class F1Score(tf.keras.metrics.Metric):
    """Calculates the F1-Score for object detection where:
       True Positive is when:
-         >>>  v_t == v_p == 1 && IoU >= th && cls_t == cls_p
+         >>> (v_t > 0.5  && v_p > 0.5) && IoU >= th && cls_t == cls_p
       False Positive is when:
-         >>>  v_t < 0.5  && v_p > 0.5
+         >>> (v_t < 0.5  && v_p > 0.5)
       False Negative is when:
-         >>> (v_t > 0.5  && v_p < 0.5) || (v_t == v_p == 1 && (IoU < th || cls_t != cls_p))
+         >>> (v_t > 0.5  && v_p < 0.5) || ((v_t > 0.5  && v_p > 0.5) && (IoU < th || cls_t != cls_p))
       
       where:
          >>> IoU - Intersection over Union between true and pred bbox
@@ -198,7 +198,7 @@ class F1Score(tf.keras.metrics.Metric):
 
       # false neg
       fn_mask_1 = tf.logical_and(y_true_items[..., 0] > 0.5, y_pred_items[..., 0] < 0.5)
-      fn_mask_2 = tf.logical_and(y_true_items[..., 0] == 1, y_pred_items[..., 0] == 1)
+      fn_mask_2 = tf.logical_and(y_true_items[..., 0] > 0.5, y_pred_items[..., 0] > 0.5)
       fn_mask_2 = tf.logical_and(fn_mask_2, tf.logical_or(ious < self.threshold, y_true_class_ids != y_pred_class_ids))
       fn_mask = tf.logical_or(fn_mask_1, fn_mask_2)
 

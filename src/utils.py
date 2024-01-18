@@ -68,7 +68,7 @@ def non_max_suppression(batch, max_output_size=200, iou_threshold=0.4):
       # Concatenate the scores and bboxes
       return tf.concat([scores, bboxes], axis=-1)
 
-   selected_boxes_scores = tf.map_fn(single_image_nms, (bboxes, scores), dtype=tf.float32)
+   selected_boxes_scores = tf.vectorized_map(single_image_nms, (bboxes, scores))
 
    selected_boxes_scores = tf.concat([selected_boxes_scores, batch[..., 5:]], axis=-1)
    
@@ -186,6 +186,5 @@ def set_memory_growth():
 
 
 if __name__ == "__main__":
-   pass
-   #extract_coco("D:/COCO 2017/annotations/instances_train2017.json", save_filename="train_annotations.json")
-   #extract_coco("D:/COCO 2017/annotations/instances_val2017.json", save_filename="val_annotations.json")
+   extract_coco("D:/COCO 2017/annotations/instances_train2017.json", save_filename="train_annotations.json")
+   extract_coco("D:/COCO 2017/annotations/instances_val2017.json", save_filename="val_annotations.json")
