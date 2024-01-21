@@ -21,7 +21,7 @@ train_gen, val_gen = get_generators(cfg)
 ### build model ###
 detector = DetectionModel(cfg)
 
-optimizer=tf.keras.optimizers.Adam(learning_rate=0)
+optimizer = tf.keras.optimizers.Adam(learning_rate=0)
 
 detector.compile(optimizer=optimizer,
               loss=DetectionLoss(cfg),
@@ -49,6 +49,4 @@ elif cfg.load_checkpoint:
 
 ### train the model ###
 detector.train_step = detector.test_step
-
-detector.fit(val_gen,
-            epochs=1)
+detector.evaluate(val_gen)
